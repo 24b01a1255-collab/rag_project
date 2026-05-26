@@ -1,3 +1,8 @@
+import os
+
+import shutil
+
+import tempfile
 
 import streamlit as st
 
@@ -11,15 +16,22 @@ from langchain_text_splitters import (
     RecursiveCharacterTextSplitter
 )
 
-from langchain_community.vectorstores import (
-    FAISS
-)
-
 from langchain_community.embeddings import (
     HuggingFaceEmbeddings
 )
 
-import tempfile
+# ---------------------------------------------------
+# CHROMA
+# ---------------------------------------------------
+
+from src.vectorstore.chroma_store import (
+
+    create_chroma_vectorstore,
+
+    load_chroma_vectorstore,
+
+    get_chroma_retriever
+)
 
 # ---------------------------------------------------
 # PAGE CONFIG
@@ -27,33 +39,38 @@ import tempfile
 
 st.set_page_config(
 
-    page_title="Basic RAG System",
+    page_title="Advanced RAG System",
 
     layout="wide"
 )
 
-st.title("Basic RAG System")
+st.title("Advanced RAG System")
 
 # ---------------------------------------------------
-# FILE UPLOAD
+# SESSION STATE
 # ---------------------------------------------------
 
-uploaded_file = st.file_uploader(
+if "retriever" not in st.session_state:
 
-    "Upload PDF",
+    st.session_state.retriever = None
 
-    type=["pdf"]
-)
+if "messages" not in st.session_state:
+
+    st.session_state.messages = []
+
+if "chat_history" not in st.session_state:
+
+    st.session_state.chat_history = []
 
 # ---------------------------------------------------
-# LOAD LLM
+# LLM
 # ---------------------------------------------------
 
 llm = ChatGroq(
 
     groq_api_key=st.secrets["GROQ_API_KEY"],
-    model_name="llama-3.1-8b-instant"
 
+    model_name="llama-3.1-8b-instant"
 )
 
 # ---------------------------------------------------
@@ -66,31 +83,132 @@ embeddings = HuggingFaceEmbeddings(
 )
 
 # ---------------------------------------------------
-# PROCESS PDF
+# SIDEBAR
 # ---------------------------------------------------
 
-if uploaded_file:
+st.sidebar.title("Database")
 
-    with tempfile.NamedTemporaryFile(
+# ---------------------------------------------------
+# CLEAR DATABASE
+# ---------------------------------------------------
 
-        delete=False,
+if st.sidebar.button(
 
-        suffix=".pdf"
+    "Clear Chroma Database"
+):
 
-    ) as tmp_file:
+    if os.path.exists("chroma_db"):
 
-        tmp_file.write(uploaded_file.read())
+        shutil.rmtree("chroma_db")
 
-        temp_path = tmp_file.name
+    st.session_state.retriever = None
 
-    # LOAD PDF
+    st.success("ChromaDB Cleared")
 
-    loader = PyPDFLoader(temp_path)
+# ---------------------------------------------------
+# LOAD EXISTING DB
+# ---------------------------------------------------
 
-    documents = loader.load()
+if (
+
+    os.path.exists("chroma_db")
+
+    and st.session_state.retriever is None
+):
+
+    try:
+
+        vectorstore = load_chroma_vectorstore(
+
+            embeddings
+        )
+
+        retriever = get_chroma_retriever(
+
+            vectorstore
+        )
+
+        st.session_state.retriever = retriever
+
+        st.sidebar.success(
+
+            "Persistent DB Loaded"
+        )
+
+    except Exception as e:
+
+        st.sidebar.error(
+
+            f"Error: {e}"
+        )
+
+# ---------------------------------------------------
+# FILE UPLOAD
+# ---------------------------------------------------
+
+uploaded_files = st.file_uploader(
+
+    "Upload PDFs",
+
+    type=["pdf"],
+
+    accept_multiple_files=True
+)
+
+# ---------------------------------------------------
+# PROCESS DOCUMENTS
+# ---------------------------------------------------
+
+if uploaded_files:
+
+    all_documents = []
+
+    for uploaded_file in uploaded_files:
+
+        with tempfile.NamedTemporaryFile(
+
+            delete=False,
+
+            suffix=".pdf"
+
+        ) as tmp_file:
+
+            tmp_file.write(
+
+                uploaded_file.read()
+            )
+
+            temp_path = tmp_file.name
+
+        # ---------------------------------------------------
+        # LOAD PDF
+        # ---------------------------------------------------
+
+        loader = PyPDFLoader(
+
+            temp_path
+        )
+
+        documents = loader.load()
+
+        # ---------------------------------------------------
+        # SAVE ORIGINAL FILE NAME
+        # ---------------------------------------------------
+
+        for doc in documents:
+
+            doc.metadata["source"] = (
+
+                uploaded_file.name
+            )
+
+        all_documents.extend(
+
+            documents
+        )
 
     # ---------------------------------------------------
-    # SPLIT DOCUMENTS
+    # SPLITTER
     # ---------------------------------------------------
 
     splitter = RecursiveCharacterTextSplitter(
@@ -102,74 +220,235 @@ if uploaded_file:
 
     split_docs = splitter.split_documents(
 
-        documents
+        all_documents
     )
 
     # ---------------------------------------------------
-    # CREATE VECTOR STORE
+    # CREATE CHROMA
     # ---------------------------------------------------
 
-    vectorstore = FAISS.from_documents(
+    vectorstore = create_chroma_vectorstore(
 
         split_docs,
 
         embeddings
     )
 
-    retriever = vectorstore.as_retriever()
+    retriever = get_chroma_retriever(
 
-    st.success("PDF Processed Successfully")
-
-    # ---------------------------------------------------
-    # QUESTION INPUT
-    # ---------------------------------------------------
-
-    question = st.chat_input(
-
-        "Ask Question"
+        vectorstore
     )
 
+    st.session_state.retriever = retriever
+
+    st.success(
+
+        "Documents Stored Successfully"
+    )
+
+# ---------------------------------------------------
+# DISPLAY CHAT
+# ---------------------------------------------------
+
+for message in st.session_state.messages:
+
+    with st.chat_message(
+
+        message["role"]
+    ):
+
+        st.markdown(
+
+            message["content"]
+        )
+
+# ---------------------------------------------------
+# CHAT INPUT
+# ---------------------------------------------------
+
+question = st.chat_input(
+
+    "Ask Question"
+)
+
+# ---------------------------------------------------
+# QUESTION ANSWERING
+# ---------------------------------------------------
+
+if question:
+
+    st.session_state.messages.append({
+
+        "role": "user",
+
+        "content": question
+    })
+
+    with st.chat_message("user"):
+
+        st.markdown(question)
+
     # ---------------------------------------------------
-    # QUESTION ANSWERING
-    # ---------------------------------------------------
 
-    if question:
+    if st.session_state.retriever is None:
 
-        st.write("User Question:")
+        st.warning(
 
-        st.write(question)
+            "Upload PDFs First"
+        )
 
-        # RETRIEVE DOCUMENTS
+    else:
 
-        docs = retriever.invoke(question)
+        with st.chat_message("assistant"):
 
-        # BUILD CONTEXT
+            # ---------------------------------------------------
+            # RETRIEVE DOCS
+            # ---------------------------------------------------
 
-        context = ""
+            docs = st.session_state.retriever.invoke(
 
-        for doc in docs:
+                question
+            )
 
-            context += doc.page_content + "\n"
+            # ---------------------------------------------------
+            # CONTEXT
+            # ---------------------------------------------------
 
-        # CREATE PROMPT
+            context = ""
 
-        prompt = f"""
-Answer the question only from the provided context.
+            for doc in docs:
+
+                context += (
+
+                    doc.page_content + "\n"
+                )
+
+            # ---------------------------------------------------
+            # MEMORY
+            # ---------------------------------------------------
+
+            history_text = ""
+
+            for item in st.session_state.chat_history:
+
+                history_text += (
+
+                    f"User: {item['question']}\n"
+                )
+
+                history_text += (
+
+                    f"Assistant: {item['answer']}\n"
+                )
+
+            # ---------------------------------------------------
+            # PROMPT
+            # ---------------------------------------------------
+
+            prompt = f"""
+
+You are a RAG assistant.
+
+Answer ONLY from the context.
+
+Conversation History:
+{history_text}
 
 Context:
 {context}
 
 Question:
 {question}
+
+Rules:
+1. If answer is unavailable,
+say:
+"I could not find relevant information."
+
+2. Do not hallucinate.
 """
 
-        # GENERATE RESPONSE
+            # ---------------------------------------------------
+            # GENERATE RESPONSE
+            # ---------------------------------------------------
 
-        response = llm.invoke(prompt)
+            response = llm.invoke(
 
-        # SHOW ANSWER
+                prompt
+            )
 
-        st.write("Answer:")
+            answer = response.content
 
-        st.write(response.content)
+            # ---------------------------------------------------
+            # SAVE MEMORY
+            # ---------------------------------------------------
 
+            st.session_state.chat_history.append({
+
+                "question": question,
+
+                "answer": answer
+            })
+
+            # ---------------------------------------------------
+            # SHOW ANSWER
+            # ---------------------------------------------------
+
+            st.markdown(answer)
+
+            st.session_state.messages.append({
+
+                "role": "assistant",
+
+                "content": answer
+            })
+
+            # ---------------------------------------------------
+            # SHOW SOURCES
+            # ---------------------------------------------------
+
+            if (
+
+                "could not find" not in answer.lower()
+            ):
+
+                st.markdown("### Sources")
+
+                shown_sources = set()
+
+                for doc in docs:
+
+                    source = doc.metadata.get(
+
+                        "source",
+
+                        "Unknown"
+                    )
+
+                    page = doc.metadata.get(
+
+                        "page",
+
+                        "N/A"
+                    )
+
+                    if isinstance(page, int):
+
+                        page += 1
+
+                    source_text = (
+
+                        f"{source} — Page {page}"
+                    )
+
+                    if source_text not in shown_sources:
+
+                        st.markdown(
+
+                            f"- {source_text}"
+                        )
+
+                        shown_sources.add(
+
+                            source_text
+                        )
