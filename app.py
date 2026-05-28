@@ -1,7 +1,5 @@
 import os
-
 import shutil
-
 import tempfile
 
 import streamlit as st
@@ -19,6 +17,15 @@ from langchain_text_splitters import (
 from langchain_community.embeddings import (
     HuggingFaceEmbeddings
 )
+
+from langchain_core.documents import Document
+# ---------------------------------------------------
+# OCR IMPORTS
+# ---------------------------------------------------
+
+from pdf2image import convert_from_path
+
+import pytesseract
 
 # ---------------------------------------------------
 # CHROMA
@@ -39,12 +46,12 @@ from src.vectorstore.chroma_store import (
 
 st.set_page_config(
 
-    page_title="Advanced RAG System",
+    page_title="OCR RAG System",
 
     layout="wide"
 )
 
-st.title("Advanced RAG System")
+st.title("OCR Enabled RAG System")
 
 # ---------------------------------------------------
 # SESSION STATE
@@ -156,6 +163,38 @@ uploaded_files = st.file_uploader(
 )
 
 # ---------------------------------------------------
+# OCR FUNCTION
+# ---------------------------------------------------
+
+def extract_text_using_ocr(pdf_path, file_name):
+
+    documents = []
+
+    images = convert_from_path(pdf_path)
+
+    for i, image in enumerate(images):
+
+        text = pytesseract.image_to_string(image)
+
+        if text.strip():
+
+            doc = Document(
+
+                page_content=text,
+
+                metadata={
+
+                    "source": file_name,
+
+                    "page": i + 1
+                }
+            )
+
+            documents.append(doc)
+
+    return documents
+
+# ---------------------------------------------------
 # PROCESS DOCUMENTS
 # ---------------------------------------------------
 
@@ -181,7 +220,7 @@ if uploaded_files:
             temp_path = tmp_file.name
 
         # ---------------------------------------------------
-        # LOAD PDF
+        # TRY NORMAL PDF EXTRACTION
         # ---------------------------------------------------
 
         loader = PyPDFLoader(
@@ -191,16 +230,38 @@ if uploaded_files:
 
         documents = loader.load()
 
-        # ---------------------------------------------------
-        # SAVE ORIGINAL FILE NAME
-        # ---------------------------------------------------
+        extracted_text = ""
 
         for doc in documents:
 
-            doc.metadata["source"] = (
+            extracted_text += doc.page_content.strip()
+
+        # ---------------------------------------------------
+        # OCR FALLBACK
+        # ---------------------------------------------------
+
+        if len(extracted_text) < 50:
+
+            st.warning(
+
+                f"OCR Used For {uploaded_file.name}"
+            )
+
+            documents = extract_text_using_ocr(
+
+                temp_path,
 
                 uploaded_file.name
             )
+
+        else:
+
+            for doc in documents:
+
+                doc.metadata["source"] = (
+
+                    uploaded_file.name
+                )
 
         all_documents.extend(
 
@@ -288,8 +349,6 @@ if question:
 
         st.markdown(question)
 
-    # ---------------------------------------------------
-
     if st.session_state.retriever is None:
 
         st.warning(
@@ -301,31 +360,31 @@ if question:
 
         with st.chat_message("assistant"):
 
-            # ---------------------------------------------------
-            # RETRIEVE DOCS
-            # ---------------------------------------------------
-
             docs = st.session_state.retriever.invoke(
 
                 question
             )
 
             # ---------------------------------------------------
-            # CONTEXT
+            # FILTER LOW RELEVANCE DOCS
             # ---------------------------------------------------
+
+            filtered_docs = []
+
+            for doc in docs:
+
+                if len(doc.page_content.strip()) > 50:
+
+                    filtered_docs.append(doc)
 
             context = ""
 
-            for doc in docs:
+            for doc in filtered_docs:
 
                 context += (
 
                     doc.page_content + "\n"
                 )
-
-            # ---------------------------------------------------
-            # MEMORY
-            # ---------------------------------------------------
 
             history_text = ""
 
@@ -340,10 +399,6 @@ if question:
 
                     f"Assistant: {item['answer']}\n"
                 )
-
-            # ---------------------------------------------------
-            # PROMPT
-            # ---------------------------------------------------
 
             prompt = f"""
 
@@ -361,16 +416,14 @@ Question:
 {question}
 
 Rules:
-1. If answer is unavailable,
-say:
+
+1. If answer is unavailable say:
 "I could not find relevant information."
 
 2. Do not hallucinate.
-"""
 
-            # ---------------------------------------------------
-            # GENERATE RESPONSE
-            # ---------------------------------------------------
+3. Give concise answers.
+"""
 
             response = llm.invoke(
 
@@ -379,20 +432,12 @@ say:
 
             answer = response.content
 
-            # ---------------------------------------------------
-            # SAVE MEMORY
-            # ---------------------------------------------------
-
             st.session_state.chat_history.append({
 
                 "question": question,
 
                 "answer": answer
             })
-
-            # ---------------------------------------------------
-            # SHOW ANSWER
-            # ---------------------------------------------------
 
             st.markdown(answer)
 
@@ -410,13 +455,15 @@ say:
             if (
 
                 "could not find" not in answer.lower()
+
+                and len(filtered_docs) > 0
             ):
 
                 st.markdown("### Sources")
 
                 shown_sources = set()
 
-                for doc in docs:
+                for doc in filtered_docs:
 
                     source = doc.metadata.get(
 
@@ -431,10 +478,6 @@ say:
 
                         "N/A"
                     )
-
-                    if isinstance(page, int):
-
-                        page += 1
 
                     source_text = (
 
