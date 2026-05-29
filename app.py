@@ -19,6 +19,7 @@ from langchain_community.embeddings import (
 )
 
 from langchain_core.documents import Document
+
 # ---------------------------------------------------
 # OCR IMPORTS
 # ---------------------------------------------------
@@ -41,17 +42,25 @@ from src.vectorstore.chroma_store import (
 )
 
 # ---------------------------------------------------
+# HYBRID RETRIEVER
+# ---------------------------------------------------
+
+from src.retrieval.hybrid_retriever import (
+    HybridRetriever
+)
+
+# ---------------------------------------------------
 # PAGE CONFIG
 # ---------------------------------------------------
 
 st.set_page_config(
 
-    page_title="OCR RAG System",
+    page_title="Hybrid OCR RAG System",
 
     layout="wide"
 )
 
-st.title("OCR Enabled RAG System")
+st.title("Hybrid OCR RAG System")
 
 # ---------------------------------------------------
 # SESSION STATE
@@ -60,6 +69,10 @@ st.title("OCR Enabled RAG System")
 if "retriever" not in st.session_state:
 
     st.session_state.retriever = None
+
+if "hybrid_retriever" not in st.session_state:
+
+    st.session_state.hybrid_retriever = None
 
 if "messages" not in st.session_state:
 
@@ -109,6 +122,8 @@ if st.sidebar.button(
         shutil.rmtree("chroma_db")
 
     st.session_state.retriever = None
+
+    st.session_state.hybrid_retriever = None
 
     st.success("ChromaDB Cleared")
 
@@ -220,7 +235,7 @@ if uploaded_files:
             temp_path = tmp_file.name
 
         # ---------------------------------------------------
-        # TRY NORMAL PDF EXTRACTION
+        # NORMAL PDF EXTRACTION
         # ---------------------------------------------------
 
         loader = PyPDFLoader(
@@ -300,7 +315,20 @@ if uploaded_files:
         vectorstore
     )
 
+    # ---------------------------------------------------
+    # HYBRID RETRIEVER
+    # ---------------------------------------------------
+
+    hybrid_retriever = HybridRetriever(
+
+        split_docs,
+
+        retriever
+    )
+
     st.session_state.retriever = retriever
+
+    st.session_state.hybrid_retriever = hybrid_retriever
 
     st.success(
 
@@ -349,7 +377,7 @@ if question:
 
         st.markdown(question)
 
-    if st.session_state.retriever is None:
+    if st.session_state.hybrid_retriever is None:
 
         st.warning(
 
@@ -360,13 +388,17 @@ if question:
 
         with st.chat_message("assistant"):
 
-            docs = st.session_state.retriever.invoke(
+            # ---------------------------------------------------
+            # HYBRID RETRIEVAL
+            # ---------------------------------------------------
+
+            docs = st.session_state.hybrid_retriever.retrieve(
 
                 question
             )
 
             # ---------------------------------------------------
-            # FILTER LOW RELEVANCE DOCS
+            # FILTER DOCS
             # ---------------------------------------------------
 
             filtered_docs = []
@@ -377,6 +409,10 @@ if question:
 
                     filtered_docs.append(doc)
 
+            # ---------------------------------------------------
+            # CONTEXT
+            # ---------------------------------------------------
+
             context = ""
 
             for doc in filtered_docs:
@@ -385,6 +421,10 @@ if question:
 
                     doc.page_content + "\n"
                 )
+
+            # ---------------------------------------------------
+            # CHAT HISTORY
+            # ---------------------------------------------------
 
             history_text = ""
 
@@ -399,6 +439,10 @@ if question:
 
                     f"Assistant: {item['answer']}\n"
                 )
+
+            # ---------------------------------------------------
+            # PROMPT
+            # ---------------------------------------------------
 
             prompt = f"""
 
@@ -425,6 +469,10 @@ Rules:
 3. Give concise answers.
 """
 
+            # ---------------------------------------------------
+            # GENERATE RESPONSE
+            # ---------------------------------------------------
+
             response = llm.invoke(
 
                 prompt
@@ -432,12 +480,20 @@ Rules:
 
             answer = response.content
 
+            # ---------------------------------------------------
+            # SAVE MEMORY
+            # ---------------------------------------------------
+
             st.session_state.chat_history.append({
 
                 "question": question,
 
                 "answer": answer
             })
+
+            # ---------------------------------------------------
+            # SHOW ANSWER
+            # ---------------------------------------------------
 
             st.markdown(answer)
 
