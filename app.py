@@ -1,6 +1,6 @@
 import os
+
 import shutil
-import tempfile
 
 import streamlit as st
 
@@ -14,55 +14,67 @@ from langchain_community.embeddings import (
     HuggingFaceEmbeddings
 )
 
+# ---------------------------------------------------
+# LOADERS
+# ---------------------------------------------------
+
+from src.loaders.loader_router import (
+    load_document
+)
+
+# ---------------------------------------------------
+# CHROMA
+# ---------------------------------------------------
+
 from src.vectorstore.chroma_store import (
 
-    create_chroma_vectorstore,
-
-    load_chroma_vectorstore,
-
-    get_chroma_retriever
+    create_chroma_vectorstore
 )
 
-from src.loaders.ocr_loader import (
-    extract_documents
-)
+# ---------------------------------------------------
+# HYBRID RETRIEVER
+# ---------------------------------------------------
 
-from src.retrieval.hybrid_retriever import (
+from src.retrievers.hybrid_retriever import (
     HybridRetriever
 )
 
-from src.prompts.prompt_builder import (
-    build_prompt
+from src.retrievers.reranker import (
+    Reranker
 )
 
-from src.memory.memory_manager import (
-    build_chat_history
+# ---------------------------------------------------
+# UTILS
+# ---------------------------------------------------
+
+from src.utils.query_expansion import (
+    expand_query
 )
 
 from src.utils.source_formatter import (
-    show_sources
+    format_sources
 )
 
+# ---------------------------------------------------
+# PAGE CONFIG
 # ---------------------------------------------------
 
 st.set_page_config(
 
-    page_title="Refactored RAG System",
+    page_title="Advanced Hybrid RAG",
 
     layout="wide"
 )
 
-st.title("Refactored Hybrid OCR RAG")
+st.title("Advanced Hybrid RAG System")
 
+# ---------------------------------------------------
+# SESSION STATE
 # ---------------------------------------------------
 
 if "retriever" not in st.session_state:
 
     st.session_state.retriever = None
-
-if "hybrid_retriever" not in st.session_state:
-
-    st.session_state.hybrid_retriever = None
 
 if "messages" not in st.session_state:
 
@@ -72,6 +84,12 @@ if "chat_history" not in st.session_state:
 
     st.session_state.chat_history = []
 
+if "documents" not in st.session_state:
+
+    st.session_state.documents = []
+
+# ---------------------------------------------------
+# LLM
 # ---------------------------------------------------
 
 llm = ChatGroq(
@@ -81,11 +99,23 @@ llm = ChatGroq(
     model_name="llama-3.1-8b-instant"
 )
 
+# ---------------------------------------------------
+# EMBEDDINGS
+# ---------------------------------------------------
+
 embeddings = HuggingFaceEmbeddings(
 
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
+# ---------------------------------------------------
+# RERANKER
+# ---------------------------------------------------
+
+reranker = Reranker()
+
+# ---------------------------------------------------
+# SIDEBAR
 # ---------------------------------------------------
 
 st.sidebar.title("Database")
@@ -101,21 +131,34 @@ if st.sidebar.button(
 
     st.session_state.retriever = None
 
-    st.session_state.hybrid_retriever = None
+    st.session_state.documents = []
 
     st.success("Database Cleared")
 
 # ---------------------------------------------------
+# FILE UPLOADER
+# ---------------------------------------------------
 
 uploaded_files = st.file_uploader(
 
-    "Upload PDFs",
+    "Upload Documents",
 
-    type=["pdf"],
+    type=[
+
+        "pdf",
+
+        "docx",
+
+        "csv",
+
+        "pptx"
+    ],
 
     accept_multiple_files=True
 )
 
+# ---------------------------------------------------
+# PROCESS DOCUMENTS
 # ---------------------------------------------------
 
 if uploaded_files:
@@ -124,29 +167,15 @@ if uploaded_files:
 
     for uploaded_file in uploaded_files:
 
-        with tempfile.NamedTemporaryFile(
+        documents = load_document(
 
-            delete=False,
-
-            suffix=".pdf"
-
-        ) as tmp_file:
-
-            tmp_file.write(
-
-                uploaded_file.read()
-            )
-
-            temp_path = tmp_file.name
-
-        documents = extract_documents(
-
-            temp_path,
-
-            uploaded_file.name
+            uploaded_file
         )
 
-        all_documents.extend(documents)
+        all_documents.extend(
+
+            documents
+        )
 
     splitter = RecursiveCharacterTextSplitter(
 
@@ -167,27 +196,30 @@ if uploaded_files:
         embeddings
     )
 
-    retriever = get_chroma_retriever(
-
-        vectorstore
-    )
-
     hybrid_retriever = HybridRetriever(
 
-        split_docs,
+        vectorstore,
 
-        retriever
+        split_docs
     )
 
-    st.session_state.retriever = retriever
+    st.session_state.retriever = (
 
-    st.session_state.hybrid_retriever = hybrid_retriever
+        hybrid_retriever
+    )
+
+    st.session_state.documents = (
+
+        split_docs
+    )
 
     st.success(
 
         "Documents Stored Successfully"
     )
 
+# ---------------------------------------------------
+# DISPLAY CHAT
 # ---------------------------------------------------
 
 for message in st.session_state.messages:
@@ -203,12 +235,16 @@ for message in st.session_state.messages:
         )
 
 # ---------------------------------------------------
+# CHAT INPUT
+# ---------------------------------------------------
 
 question = st.chat_input(
 
     "Ask Question"
 )
 
+# ---------------------------------------------------
+# QUESTION ANSWERING
 # ---------------------------------------------------
 
 if question:
@@ -224,52 +260,115 @@ if question:
 
         st.markdown(question)
 
-    if st.session_state.hybrid_retriever is None:
+    if st.session_state.retriever is None:
 
         st.warning(
 
-            "Upload PDFs First"
+            "Upload Documents First"
         )
 
     else:
 
         with st.chat_message("assistant"):
 
-            docs = st.session_state.hybrid_retriever.retrieve(
+            # ---------------------------------------------------
+            # QUERY EXPANSION
+            # ---------------------------------------------------
+
+            expanded_query = expand_query(
 
                 question
             )
 
-            filtered_docs = []
+            # ---------------------------------------------------
+            # HYBRID RETRIEVAL
+            # ---------------------------------------------------
 
-            for doc in docs:
+            docs = st.session_state.retriever.retrieve(
 
-                if len(doc.page_content.strip()) > 50:
+                expanded_query,
 
-                    filtered_docs.append(doc)
+                top_k=6
+            )
+
+            # ---------------------------------------------------
+            # RERANKING
+            # ---------------------------------------------------
+
+            docs = reranker.rerank(
+
+                question,
+
+                docs,
+
+                top_k=4
+            )
+
+            # ---------------------------------------------------
+            # CONTEXT
+            # ---------------------------------------------------
 
             context = ""
 
-            for doc in filtered_docs:
+            for doc in docs:
 
                 context += (
 
                     doc.page_content + "\n"
                 )
 
-            history_text = build_chat_history(
+            # ---------------------------------------------------
+            # MEMORY
+            # ---------------------------------------------------
 
-                st.session_state.chat_history
-            )
+            history_text = ""
 
-            prompt = build_prompt(
+            for item in st.session_state.chat_history[-5:]:
 
-                history_text,
+                history_text += (
 
-                context,
+                    f"User: {item['question']}\n"
+                )
 
-                question
-            )
+                history_text += (
+
+                    f"Assistant: {item['answer']}\n"
+                )
+
+            # ---------------------------------------------------
+            # PROMPT
+            # ---------------------------------------------------
+
+            prompt = f"""
+
+You are an advanced RAG assistant.
+
+Answer ONLY from the context.
+
+Conversation History:
+{history_text}
+
+Context:
+{context}
+
+Question:
+{question}
+
+Rules:
+
+1. If answer is unavailable say:
+"I could not find relevant information."
+
+2. Do not hallucinate.
+
+3. Give concise answers.
+
+4. Use context strictly.
+"""
+
+            # ---------------------------------------------------
+            # GENERATE RESPONSE
+            # ---------------------------------------------------
 
             response = llm.invoke(
 
@@ -277,6 +376,21 @@ if question:
             )
 
             answer = response.content
+
+            # ---------------------------------------------------
+            # SAVE MEMORY
+            # ---------------------------------------------------
+
+            st.session_state.chat_history.append({
+
+                "question": question,
+
+                "answer": answer
+            })
+
+            # ---------------------------------------------------
+            # SHOW ANSWER
+            # ---------------------------------------------------
 
             st.markdown(answer)
 
@@ -287,25 +401,24 @@ if question:
                 "content": answer
             })
 
-            st.session_state.chat_history.append({
-
-                "question": question,
-
-                "answer": answer
-            })
+            # ---------------------------------------------------
+            # SHOW SOURCES
+            # ---------------------------------------------------
 
             if (
 
                 "could not find"
 
                 not in answer.lower()
-
-                and len(filtered_docs) > 0
             ):
 
-                show_sources(
+                st.markdown("### Sources")
 
-                    filtered_docs,
+                sources = format_sources(docs)
 
-                    st
-                )
+                for source in sources:
+
+                    st.markdown(
+
+                        f"- {source}"
+                    )

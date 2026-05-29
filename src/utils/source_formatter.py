@@ -1,11 +1,6 @@
-def show_sources(
+def format_sources(docs):
 
-    docs,
-
-    st
-):
-
-    st.markdown("### Sources")
+    formatted_sources = []
 
     shown_sources = set()
 
@@ -32,12 +27,14 @@ def show_sources(
 
         if source_text not in shown_sources:
 
-            st.markdown(
+            formatted_sources.append(
 
-                f"- {source_text}"
+                source_text
             )
 
             shown_sources.add(
 
                 source_text
             )
+
+    return formatted_sources

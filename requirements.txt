@@ -2,11 +2,14 @@ streamlit
 langchain
 langchain-community
 langchain-groq
-langchain-core
+langchain-chroma
 chromadb
 sentence-transformers
 pypdf
+python-docx
+pandas
+python-pptx
+unstructured
 pdf2image
 pytesseract
-Pillow
-rank-bm25
+pillow
