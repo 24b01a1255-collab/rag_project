@@ -36,18 +36,10 @@ class HybridRetriever:
         k=4
     ):
 
-        # -----------------------------
-        # VECTOR SEARCH
-        # -----------------------------
-
         vector_docs = self.vector_retriever.invoke(
 
             query
         )
-
-        # -----------------------------
-        # BM25 SEARCH
-        # -----------------------------
 
         tokenized_query = query.split()
 
@@ -71,10 +63,6 @@ class HybridRetriever:
 
             for i in bm25_top_indices
         ]
-
-        # -----------------------------
-        # COMBINE RESULTS
-        # -----------------------------
 
         combined_docs = []
 

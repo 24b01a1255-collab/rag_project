@@ -6,10 +6,6 @@ import streamlit as st
 
 from langchain_groq import ChatGroq
 
-from langchain_community.document_loaders import (
-    PyPDFLoader
-)
-
 from langchain_text_splitters import (
     RecursiveCharacterTextSplitter
 )
@@ -17,20 +13,6 @@ from langchain_text_splitters import (
 from langchain_community.embeddings import (
     HuggingFaceEmbeddings
 )
-
-from langchain_core.documents import Document
-
-# ---------------------------------------------------
-# OCR IMPORTS
-# ---------------------------------------------------
-
-from pdf2image import convert_from_path
-
-import pytesseract
-
-# ---------------------------------------------------
-# CHROMA
-# ---------------------------------------------------
 
 from src.vectorstore.chroma_store import (
 
@@ -41,29 +23,37 @@ from src.vectorstore.chroma_store import (
     get_chroma_retriever
 )
 
-# ---------------------------------------------------
-# HYBRID RETRIEVER
-# ---------------------------------------------------
+from src.loaders.ocr_loader import (
+    extract_documents
+)
 
 from src.retrieval.hybrid_retriever import (
     HybridRetriever
 )
 
-# ---------------------------------------------------
-# PAGE CONFIG
+from src.prompts.prompt_builder import (
+    build_prompt
+)
+
+from src.memory.memory_manager import (
+    build_chat_history
+)
+
+from src.utils.source_formatter import (
+    show_sources
+)
+
 # ---------------------------------------------------
 
 st.set_page_config(
 
-    page_title="Hybrid OCR RAG System",
+    page_title="Refactored RAG System",
 
     layout="wide"
 )
 
-st.title("Hybrid OCR RAG System")
+st.title("Refactored Hybrid OCR RAG")
 
-# ---------------------------------------------------
-# SESSION STATE
 # ---------------------------------------------------
 
 if "retriever" not in st.session_state:
@@ -83,8 +73,6 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # ---------------------------------------------------
-# LLM
-# ---------------------------------------------------
 
 llm = ChatGroq(
 
@@ -93,24 +81,14 @@ llm = ChatGroq(
     model_name="llama-3.1-8b-instant"
 )
 
-# ---------------------------------------------------
-# EMBEDDINGS
-# ---------------------------------------------------
-
 embeddings = HuggingFaceEmbeddings(
 
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
 # ---------------------------------------------------
-# SIDEBAR
-# ---------------------------------------------------
 
 st.sidebar.title("Database")
-
-# ---------------------------------------------------
-# CLEAR DATABASE
-# ---------------------------------------------------
 
 if st.sidebar.button(
 
@@ -125,47 +103,8 @@ if st.sidebar.button(
 
     st.session_state.hybrid_retriever = None
 
-    st.success("ChromaDB Cleared")
+    st.success("Database Cleared")
 
-# ---------------------------------------------------
-# LOAD EXISTING DB
-# ---------------------------------------------------
-
-if (
-
-    os.path.exists("chroma_db")
-
-    and st.session_state.retriever is None
-):
-
-    try:
-
-        vectorstore = load_chroma_vectorstore(
-
-            embeddings
-        )
-
-        retriever = get_chroma_retriever(
-
-            vectorstore
-        )
-
-        st.session_state.retriever = retriever
-
-        st.sidebar.success(
-
-            "Persistent DB Loaded"
-        )
-
-    except Exception as e:
-
-        st.sidebar.error(
-
-            f"Error: {e}"
-        )
-
-# ---------------------------------------------------
-# FILE UPLOAD
 # ---------------------------------------------------
 
 uploaded_files = st.file_uploader(
@@ -177,40 +116,6 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-# ---------------------------------------------------
-# OCR FUNCTION
-# ---------------------------------------------------
-
-def extract_text_using_ocr(pdf_path, file_name):
-
-    documents = []
-
-    images = convert_from_path(pdf_path)
-
-    for i, image in enumerate(images):
-
-        text = pytesseract.image_to_string(image)
-
-        if text.strip():
-
-            doc = Document(
-
-                page_content=text,
-
-                metadata={
-
-                    "source": file_name,
-
-                    "page": i + 1
-                }
-            )
-
-            documents.append(doc)
-
-    return documents
-
-# ---------------------------------------------------
-# PROCESS DOCUMENTS
 # ---------------------------------------------------
 
 if uploaded_files:
@@ -234,58 +139,14 @@ if uploaded_files:
 
             temp_path = tmp_file.name
 
-        # ---------------------------------------------------
-        # NORMAL PDF EXTRACTION
-        # ---------------------------------------------------
+        documents = extract_documents(
 
-        loader = PyPDFLoader(
+            temp_path,
 
-            temp_path
+            uploaded_file.name
         )
 
-        documents = loader.load()
-
-        extracted_text = ""
-
-        for doc in documents:
-
-            extracted_text += doc.page_content.strip()
-
-        # ---------------------------------------------------
-        # OCR FALLBACK
-        # ---------------------------------------------------
-
-        if len(extracted_text) < 50:
-
-            st.warning(
-
-                f"OCR Used For {uploaded_file.name}"
-            )
-
-            documents = extract_text_using_ocr(
-
-                temp_path,
-
-                uploaded_file.name
-            )
-
-        else:
-
-            for doc in documents:
-
-                doc.metadata["source"] = (
-
-                    uploaded_file.name
-                )
-
-        all_documents.extend(
-
-            documents
-        )
-
-    # ---------------------------------------------------
-    # SPLITTER
-    # ---------------------------------------------------
+        all_documents.extend(documents)
 
     splitter = RecursiveCharacterTextSplitter(
 
@@ -299,10 +160,6 @@ if uploaded_files:
         all_documents
     )
 
-    # ---------------------------------------------------
-    # CREATE CHROMA
-    # ---------------------------------------------------
-
     vectorstore = create_chroma_vectorstore(
 
         split_docs,
@@ -314,10 +171,6 @@ if uploaded_files:
 
         vectorstore
     )
-
-    # ---------------------------------------------------
-    # HYBRID RETRIEVER
-    # ---------------------------------------------------
 
     hybrid_retriever = HybridRetriever(
 
@@ -336,8 +189,6 @@ if uploaded_files:
     )
 
 # ---------------------------------------------------
-# DISPLAY CHAT
-# ---------------------------------------------------
 
 for message in st.session_state.messages:
 
@@ -352,16 +203,12 @@ for message in st.session_state.messages:
         )
 
 # ---------------------------------------------------
-# CHAT INPUT
-# ---------------------------------------------------
 
 question = st.chat_input(
 
     "Ask Question"
 )
 
-# ---------------------------------------------------
-# QUESTION ANSWERING
 # ---------------------------------------------------
 
 if question:
@@ -388,18 +235,10 @@ if question:
 
         with st.chat_message("assistant"):
 
-            # ---------------------------------------------------
-            # HYBRID RETRIEVAL
-            # ---------------------------------------------------
-
             docs = st.session_state.hybrid_retriever.retrieve(
 
                 question
             )
-
-            # ---------------------------------------------------
-            # FILTER DOCS
-            # ---------------------------------------------------
 
             filtered_docs = []
 
@@ -408,10 +247,6 @@ if question:
                 if len(doc.page_content.strip()) > 50:
 
                     filtered_docs.append(doc)
-
-            # ---------------------------------------------------
-            # CONTEXT
-            # ---------------------------------------------------
 
             context = ""
 
@@ -422,56 +257,19 @@ if question:
                     doc.page_content + "\n"
                 )
 
-            # ---------------------------------------------------
-            # CHAT HISTORY
-            # ---------------------------------------------------
+            history_text = build_chat_history(
 
-            history_text = ""
+                st.session_state.chat_history
+            )
 
-            for item in st.session_state.chat_history:
+            prompt = build_prompt(
 
-                history_text += (
+                history_text,
 
-                    f"User: {item['question']}\n"
-                )
+                context,
 
-                history_text += (
-
-                    f"Assistant: {item['answer']}\n"
-                )
-
-            # ---------------------------------------------------
-            # PROMPT
-            # ---------------------------------------------------
-
-            prompt = f"""
-
-You are a RAG assistant.
-
-Answer ONLY from the context.
-
-Conversation History:
-{history_text}
-
-Context:
-{context}
-
-Question:
-{question}
-
-Rules:
-
-1. If answer is unavailable say:
-"I could not find relevant information."
-
-2. Do not hallucinate.
-
-3. Give concise answers.
-"""
-
-            # ---------------------------------------------------
-            # GENERATE RESPONSE
-            # ---------------------------------------------------
+                question
+            )
 
             response = llm.invoke(
 
@@ -479,21 +277,6 @@ Rules:
             )
 
             answer = response.content
-
-            # ---------------------------------------------------
-            # SAVE MEMORY
-            # ---------------------------------------------------
-
-            st.session_state.chat_history.append({
-
-                "question": question,
-
-                "answer": answer
-            })
-
-            # ---------------------------------------------------
-            # SHOW ANSWER
-            # ---------------------------------------------------
 
             st.markdown(answer)
 
@@ -504,50 +287,25 @@ Rules:
                 "content": answer
             })
 
-            # ---------------------------------------------------
-            # SHOW SOURCES
-            # ---------------------------------------------------
+            st.session_state.chat_history.append({
+
+                "question": question,
+
+                "answer": answer
+            })
 
             if (
 
-                "could not find" not in answer.lower()
+                "could not find"
+
+                not in answer.lower()
 
                 and len(filtered_docs) > 0
             ):
 
-                st.markdown("### Sources")
+                show_sources(
 
-                shown_sources = set()
+                    filtered_docs,
 
-                for doc in filtered_docs:
-
-                    source = doc.metadata.get(
-
-                        "source",
-
-                        "Unknown"
-                    )
-
-                    page = doc.metadata.get(
-
-                        "page",
-
-                        "N/A"
-                    )
-
-                    source_text = (
-
-                        f"{source} — Page {page}"
-                    )
-
-                    if source_text not in shown_sources:
-
-                        st.markdown(
-
-                            f"- {source_text}"
-                        )
-
-                        shown_sources.add(
-
-                            source_text
-                        )
+                    st
+                )
