@@ -42,7 +42,9 @@ from src.retrievers.hybrid_retriever import (
 from src.retrievers.reranker import (
     Reranker
 )
-
+from src.tools.summarizer_tool import (
+    summarize_documents
+)
 # ---------------------------------------------------
 # UTILS
 # ---------------------------------------------------
@@ -88,6 +90,10 @@ if "documents" not in st.session_state:
 
     st.session_state.documents = []
 
+if "summary" not in st.session_state:
+
+    st.session_state.summary = ""
+
 # ---------------------------------------------------
 # LLM
 # ---------------------------------------------------
@@ -120,6 +126,38 @@ reranker = Reranker()
 
 st.sidebar.title("Database")
 
+# ---------------------------------------------------
+# DOCUMENT SUMMARY TOOL
+# ---------------------------------------------------
+
+if st.sidebar.button("Generate Document Summary"):
+
+    if not st.session_state.documents:
+
+        st.warning("Upload documents first")
+
+    else:
+
+        with st.spinner("Generating summary..."):
+
+            summary = summarize_documents(
+
+                st.session_state.documents,
+
+                llm
+            )
+
+            st.session_state.summary = summary
+
+            st.session_state.messages.append({
+
+                "role": "assistant",
+
+                "content": summary
+            })
+
+            st.success("Summary Generated")
+
 if st.sidebar.button(
 
     "Clear Chroma Database"
@@ -129,11 +167,13 @@ if st.sidebar.button(
 
         shutil.rmtree("chroma_db")
 
-    st.session_state.retriever = None
+        st.session_state.retriever = None
 
-    st.session_state.documents = []
+        st.session_state.documents = []
 
-    st.success("Database Cleared")
+        st.session_state.summary = ""
+
+        st.success("Database Cleared")
 
 # ---------------------------------------------------
 # FILE UPLOADER
@@ -216,6 +256,18 @@ if uploaded_files:
     st.success(
 
         "Documents Stored Successfully"
+    )
+# ---------------------------------------------------
+# SHOW DOCUMENT SUMMARY
+# ---------------------------------------------------
+
+if st.session_state.summary:
+
+    st.subheader("Document Summary")
+
+    st.markdown(
+
+        st.session_state.summary
     )
 
 # ---------------------------------------------------
