@@ -56,7 +56,15 @@ from src.utils.query_expansion import (
 from src.utils.source_formatter import (
     format_sources
 )
-
+from src.tools.web_search_tool import (
+    web_search
+)
+from src.database.mysql_db import (
+    save_chat
+)
+from src.database.mysql_db import (
+    get_all_chats
+)
 # ---------------------------------------------------
 # PAGE CONFIG
 # ---------------------------------------------------
@@ -158,22 +166,21 @@ if st.sidebar.button("Generate Document Summary"):
 
             st.success("Summary Generated")
 
-if st.sidebar.button(
+# ---------------------------------------------------
+# CLEAR DATABASE
+# ---------------------------------------------------
 
-    "Clear Chroma Database"
-):
+if st.sidebar.button("Clear Chroma Database"):
 
     if os.path.exists("chroma_db"):
 
         shutil.rmtree("chroma_db")
 
-        st.session_state.retriever = None
+    st.session_state.retriever = None
+    st.session_state.documents = []
+    st.session_state.summary = ""
 
-        st.session_state.documents = []
-
-        st.session_state.summary = ""
-
-        st.success("Database Cleared")
+    st.success("Database Cleared")
 
 # ---------------------------------------------------
 # FILE UPLOADER
@@ -336,25 +343,56 @@ if question:
             # HYBRID RETRIEVAL
             # ---------------------------------------------------
 
-            docs = st.session_state.retriever.retrieve(
+            docs = st.session_state.retriever.retrieve(expanded_query,top_k=6)
 
-                expanded_query,
-
-                top_k=6
-            )
-
+            docs = reranker.rerank(question,docs,top_k=4,threshold=0.30)
             # ---------------------------------------------------
-            # RERANKING
+            # WEB SEARCH FALLBACK
             # ---------------------------------------------------
 
-            docs = reranker.rerank(
+            if len(docs) == 0:
 
-                question,
+                web_context = web_search(question)
 
-                docs,
+                prompt = f"""
+            You are a helpful assistant.
 
-                top_k=4
-            )
+            Use ONLY the web search results below.
+
+            Web Search Results:
+            {web_context}
+
+            Question:
+            {question}
+
+            Answer clearly and concisely.
+            """
+
+                response = llm.invoke(prompt)
+
+                answer = response.content
+
+                st.markdown(answer)
+
+                st.markdown("### Source")
+                st.markdown("Retrieved from Web Search")
+
+                st.session_state.chat_history.append({
+
+                    "question": question,
+
+                    "answer": answer
+                })
+                save_chat(question,answer)
+
+                st.session_state.messages.append({
+
+                    "role": "assistant",
+
+                    "content": answer
+                })
+
+                st.stop()
 
             # ---------------------------------------------------
             # CONTEXT
@@ -439,6 +477,7 @@ Rules:
 
                 "answer": answer
             })
+            save_chat(question,answer)
 
             # ---------------------------------------------------
             # SHOW ANSWER
