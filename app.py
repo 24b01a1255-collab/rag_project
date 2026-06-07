@@ -9,7 +9,9 @@ from langchain_groq import ChatGroq
 from langchain_text_splitters import (
     RecursiveCharacterTextSplitter
 )
-
+from src.tools.voice_tool import (
+    listen_voice
+)
 from langchain_community.embeddings import (
     HuggingFaceEmbeddings
 )
@@ -301,6 +303,30 @@ question = st.chat_input(
 
     "Ask Question"
 )
+voice_question = None
+
+if st.button("🎤 Speak Question"):
+
+    st.info("🎙️ Speak now...")
+
+    voice_question = listen_voice()
+
+    if voice_question:
+
+        st.success(
+            f"You said: {voice_question}"
+        )
+
+        question = voice_question
+
+    else:
+
+        st.error(
+            "Could not recognize speech"
+        )
+
+        question = voice_question
+
 
 # ---------------------------------------------------
 # QUESTION ANSWERING
