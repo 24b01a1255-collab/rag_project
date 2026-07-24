@@ -67,19 +67,19 @@ An advanced Retrieval-Augmented Generation (RAG) application built using **LangC
 
 ## Features
 
-1.Multiple Document Support
-2.Automatic Text Spitting
-3.Embedding Generation
-4.Chroma DB
-5.Hybrid Retrieval
-6.Query Expansion
-7.Cross Encoder Reranker
-8.Prompt Engineering
-9.Conversation Memory
-10.Voice Input
-11.Document Summarization
-12.Web Search Fallaback
-13.Source Display
+1. Multiple Document Support
+2. Automatic Text Spitting
+3. Embedding Generation
+4. Chroma DB
+5. Hybrid Retrieval
+6. Query Expansion
+7. Cross Encoder Reranker
+8. Prompt Engineering
+9. Conversation Memory
+10. Voice Input
+11. Document Summarization
+12. Web Search Fallaback
+13. Source Display
 
 
 ## Supported File Formats
