@@ -1,54 +1,64 @@
-Work Flow Diagram:
+## Document Upload Workflow:
+           Upload Document
            
-           Document Upload
-                  │
-                  ▼
-        Document Loader
-                  │
-      ┌───────────┴───────────┐
-      │                       │
-      ▼                       ▼
- OCR (if needed)        Text Extraction
-      │                       │
-      └───────────┬───────────┘
-                  ▼
-        Generate Embeddings
-                  │
-      ┌───────────┴───────────┐
-      ▼                       ▼
- ChromaDB Index         BM25 Index
+           ↓
+           
+           Loader
+           
+           ↓
+           
+           Text Splitter
+           
+           ↓
+           
+           Chunk Creation
+           
+           ↓
+           
+           Embedding Model
+           
+           ↓
+           
+           Vector Embeddings
+           
+           ↓
+           
+           Store in ChromaDB     
 
-──────────────────────────────────────────────
-
-              User Question
-                    │
-                    ▼
-          Conversation Memory
-                    │
-                    ▼
-           Query Expansion
-                    │
-                    ▼
-      Hybrid Retrieval (BM25 + Chroma)
-                    │
-                    ▼
-      Cross-Encoder Reranker
-                    │
-         Low Confidence?
-          │              │
-         No             Yes
-          │              ▼
-          │        Web Search Tool
-          │              │
-          └──────┬───────┘
-                 ▼
-             Groq LLM
-                 │
-                 ▼
-      Answer + Source Citations
-                 │
-                 ▼
-        Update Conversation Memory
+## Retrieval Workflow:
+           Question
+           
+           ↓
+           
+           Expand Query
+           
+           ↓
+           
+           Chroma Search
+           
+           ↓
+           
+           BM25 Search
+           
+           ↓
+           
+           Merge
+           
+           ↓
+           
+           Reranker
+           
+           ↓
+           
+           Top Chunks
+           
+           ↓
+           
+           LLM
+           
+           ↓
+           
+           Answer
 
 # Advanced Hybrid RAG System
 
@@ -57,21 +67,19 @@ An advanced Retrieval-Augmented Generation (RAG) application built using **LangC
 
 ## Features
 
-- Hybrid Retrieval (Vector Search + BM25)
-- Semantic Search using ChromaDB
-- Query Expansion for improved retrieval
-- Cross-Encoder Reranking
-- Persistent Vector Database
-- Multi-file Document Support
-- Conversational Memory
-- Source Citation
-- OCR Support using Tesseract
-- PDF Image Extraction with Poppler
-- Document Summarization Tool
-- Web Search Tool
-- Voice Search Support
-- Modular Project Architecture
-- Streamlit User Interface
+1.Multiple Document Support
+2.Automatic Text Spitting
+3.Embedding Generation
+4.Chroma DB
+5.Hybrid Retrieval
+6.Query Expansion
+7.Cross Encoder Reranker
+8.Prompt Engineering
+9.Conversation Memory
+10.Voice Input
+11.Document Summarization
+12.Web Search Fallaback
+13.Source Display
 
 
 ## Supported File Formats
@@ -108,85 +116,4 @@ rag_pro/
     └── secrets.toml
 ```
 
----
-
-## Retrieval Pipeline
-
-```
-User Query
-      │
-      ▼
-Query Expansion
-      │
-      ▼
-Hybrid Retrieval
-(BM25 + ChromaDB)
-      │
-      ▼
-Cross Encoder Reranker
-      │
-      ▼
-Relevant Context
-      │
-      ▼
-Groq LLM
-      │
-      ▼
-Final Answer
-      │
-      ▼
-Sources Returned
-```
-
-
-
-## Project Modules
-
-### Document Loader
-
-- Loads multiple document formats
-- OCR support for scanned PDFs and images
-
-### Vector Store
-
-- Persistent ChromaDB storage
-- Embedding generation
-
-### Hybrid Retriever
-
-- Dense semantic retrieval
-- BM25 keyword retrieval
-- Result fusion
-
-### Reranker
-
-- Cross-Encoder reranking
-- Improves retrieval relevance
-
-### Memory
-
-- Maintains conversational context
-
-### Document Summarizer
-
-- Generates concise summaries of uploaded documents
-
-### Web Search
-
-- Retrieves external information when required
-
-### Voice Search
-
-- Allows speech-based user queries
-
-
-## OCR Support
-
-Scanned PDFs and images are processed using:
-
-- Tesseract OCR
-- Poppler
-- Pillow
-
-This enables text extraction from image-based documents.
 
